@@ -1,0 +1,78 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Liste der Körperteile fürs Skelett
+local bones = {
+    {"Head", "UpperTorso"},
+    {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"},
+    {"LeftUpperArm", "LeftLowerArm"},
+    {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"},
+    {"RightUpperArm", "RightLowerArm"},
+    {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"},
+    {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"},
+    {"RightUpperLeg", "RightLowerLeg"},
+    {"RightLowerLeg", "RightFoot"},
+}
+
+-- Tracking Tabelle für Lines
+local skeletons = {}
+
+-- Hilfsfunktion: Erstelle Linien
+local function createLine()
+    local line = Drawing.new("Line")
+    line.Color = Color3.fromRGB(0, 255, 0)
+    line.Thickness = 2
+    line.Transparency = 1
+    return line
+end
+
+-- Hauptloop
+RunService.RenderStepped:Connect(function()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            if not skeletons[player] then
+                skeletons[player] = {}
+                for _, pair in ipairs(bones) do
+                    table.insert(skeletons[player], createLine())
+                end
+            end
+
+            for i, pair in ipairs(bones) do
+                local part1 = player.Character:FindFirstChild(pair[1])
+                local part2 = player.Character:FindFirstChild(pair[2])
+                local line = skeletons[player][i]
+
+                if part1 and part2 then
+                    local pos1, onScreen1 = Camera:WorldToViewportPoint(part1.Position)
+                    local pos2, onScreen2 = Camera:WorldToViewportPoint(part2.Position)
+                    if onScreen1 and onScreen2 then
+                        line.From = Vector2.new(pos1.X, pos1.Y)
+                        line.To = Vector2.new(pos2.X, pos2.Y)
+                        line.Visible = true
+                    else
+                        line.Visible = false
+                    end
+                else
+                    line.Visible = false
+                end
+            end
+        end
+    end
+
+    -- Entferne ESP wenn Spieler geht
+    for player, lines in pairs(skeletons) do
+        if not Players:FindFirstChild(player.Name) then
+            for _, line in pairs(lines) do
+                line:Remove()
+            end
+            skeletons[player] = nil
+        end
+    end
+end)
