@@ -1,78 +1,145 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
-
--- Liste der Körperteile fürs Skelett
-local bones = {
-    {"Head", "UpperTorso"},
-    {"UpperTorso", "LowerTorso"},
-    {"UpperTorso", "LeftUpperArm"},
-    {"LeftUpperArm", "LeftLowerArm"},
-    {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"},
-    {"RightUpperArm", "RightLowerArm"},
-    {"RightLowerArm", "RightHand"},
-    {"LowerTorso", "LeftUpperLeg"},
-    {"LeftUpperLeg", "LeftLowerLeg"},
-    {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"},
-    {"RightUpperLeg", "RightLowerLeg"},
-    {"RightLowerLeg", "RightFoot"},
+--// Konfiguration
+local Settings = {
+    ToggleKey = Enum.KeyCode.Insert,
+    ESPEnabled = true,
+    AimbotEnabled = true,
+    AimPart = "Head",
+    TeamCheck = true,
+    Smoothness = 0,
+    FOV = 120
 }
 
--- Tracking Tabelle für Lines
-local skeletons = {}
+--// Setup
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
 
--- Hilfsfunktion: Erstelle Linien
-local function createLine()
-    local line = Drawing.new("Line")
-    line.Color = Color3.fromRGB(0, 255, 0)
-    line.Thickness = 2
-    line.Transparency = 1
-    return line
+local DrawingESP = {}
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Thickness = 1
+FOVCircle.Radius = Settings.FOV
+FOVCircle.Color = Color3.fromRGB(0, 255, 0)
+FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+FOVCircle.Transparency = 0.5
+FOVCircle.Filled = false
+
+--// ESP Box & Tracer
+function CreateESP(player)
+    if player == LocalPlayer then return end
+    local box = Drawing.new("Square")
+    box.Thickness = 1
+    box.Color = Color3.fromRGB(255, 0, 0)
+    box.Transparency = 0.9
+    box.Visible = false
+    box.Filled = false
+
+    local tracer = Drawing.new("Line")
+    tracer.Color = Color3.fromRGB(255, 255, 255)
+    tracer.Thickness = 1
+    tracer.Transparency = 0.9
+    tracer.Visible = false
+
+    DrawingESP[player] = {Box = box, Tracer = tracer}
 end
 
--- Hauptloop
+function RemoveESP(player)
+    if DrawingESP[player] then
+        DrawingESP[player].Box:Remove()
+        DrawingESP[player].Tracer:Remove()
+        DrawingESP[player] = nil
+    end
+end
+
+--// ESP Update
 RunService.RenderStepped:Connect(function()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            if not skeletons[player] then
-                skeletons[player] = {}
-                for _, pair in ipairs(bones) do
-                    table.insert(skeletons[player], createLine())
+    for i, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+            if Settings.TeamCheck and v.Team == LocalPlayer.Team then
+                if DrawingESP[v] then
+                    DrawingESP[v].Box.Visible = false
+                    DrawingESP[v].Tracer.Visible = false
                 end
+                continue
             end
 
-            for i, pair in ipairs(bones) do
-                local part1 = player.Character:FindFirstChild(pair[1])
-                local part2 = player.Character:FindFirstChild(pair[2])
-                local line = skeletons[player][i]
+            if not DrawingESP[v] then
+                CreateESP(v)
+            end
 
-                if part1 and part2 then
-                    local pos1, onScreen1 = Camera:WorldToViewportPoint(part1.Position)
-                    local pos2, onScreen2 = Camera:WorldToViewportPoint(part2.Position)
-                    if onScreen1 and onScreen2 then
-                        line.From = Vector2.new(pos1.X, pos1.Y)
-                        line.To = Vector2.new(pos2.X, pos2.Y)
-                        line.Visible = true
-                    else
-                        line.Visible = false
-                    end
-                else
-                    line.Visible = false
+            local pos, onscreen = Camera:WorldToViewportPoint(v.Character.HumanoidRootPart.Position)
+            if onscreen and Settings.ESPEnabled then
+                local box = DrawingESP[v].Box
+                local size = Vector2.new(40, 60)
+                box.Position = Vector2.new(pos.X - size.X / 2, pos.Y - size.Y / 2)
+                box.Size = size
+                box.Visible = true
+
+                local tracer = DrawingESP[v].Tracer
+                tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                tracer.To = Vector2.new(pos.X, pos.Y)
+                tracer.Visible = true
+            else
+                if DrawingESP[v] then
+                    DrawingESP[v].Box.Visible = false
+                    DrawingESP[v].Tracer.Visible = false
                 end
+            end
+        elseif DrawingESP[v] then
+            DrawingESP[v].Box.Visible = false
+            DrawingESP[v].Tracer.Visible = false
+        end
+    end
+end)
+
+--// Aimbot Targeting
+function GetClosestTarget()
+    local closest = nil
+    local shortest = math.huge
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild(Settings.AimPart) and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+            if Settings.TeamCheck and v.Team == LocalPlayer.Team then continue end
+            local pos, visible = Camera:WorldToViewportPoint(v.Character[Settings.AimPart].Position)
+            local dist = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
+            if visible and dist < shortest and dist < Settings.FOV then
+                shortest = dist
+                closest = v
             end
         end
     end
+    return closest
+end
 
-    -- Entferne ESP wenn Spieler geht
-    for player, lines in pairs(skeletons) do
-        if not Players:FindFirstChild(player.Name) then
-            for _, line in pairs(lines) do
-                line:Remove()
+--// Aimbot
+RunService.RenderStepped:Connect(function()
+    if Settings.AimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local target = GetClosestTarget()
+        if target then
+            local aimpart = target.Character[Settings.AimPart]
+            local aimpos = Camera:WorldToViewportPoint(aimpart.Position)
+            local offset = Vector2.new(0, -2) -- optional leicht nach unten korrigieren
+            local screenpos = Vector2.new(aimpos.X, aimpos.Y) + offset
+            local mousepos = UserInputService:GetMouseLocation()
+
+            if Settings.Smoothness == 0 then
+                mousemoverel(screenpos.X - mousepos.X, screenpos.Y - mousepos.Y)
+            else
+                local newpos = mousepos:Lerp(screenpos, Settings.Smoothness)
+                mousemoverel(newpos.X - mousepos.X, newpos.Y - mousepos.Y)
             end
-            skeletons[player] = nil
         end
+    end
+end)
+
+--// Toggle UI (Insert)
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if input.KeyCode == Settings.ToggleKey then
+        Settings.ESPEnabled = not Settings.ESPEnabled
+        Settings.AimbotEnabled = not Settings.AimbotEnabled
+        FOVCircle.Visible = Settings.AimbotEnabled
+        print("ESP: " .. tostring(Settings.ESPEnabled) .. " | Aimbot: " .. tostring(Settings.AimbotEnabled))
     end
 end)
